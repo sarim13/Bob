@@ -1,0 +1,179 @@
+diff -ru shopfront/app/db.py shopfront-fixed/app/db.py
+--- shopfront/app/db.py	2026-09-26 06:57:38.554980967 +0500
++++ shopfront-fixed/app/db.py	2026-09-26 07:01:25.834700795 +0500
+@@ -14,10 +14,9 @@
+     pool_timeout=3,
+ )
+ 
+-SessionLocal = async_sessionmaker(engine, class_=AsyncSession)
++SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+ 
+ 
+ async def get_db():
+     async with SessionLocal() as db:
+         yield db
+-        await db.commit()
+diff -ru shopfront/app/routers/admin.py shopfront-fixed/app/routers/admin.py
+--- shopfront/app/routers/admin.py	2026-09-26 06:58:15.818983182 +0500
++++ shopfront-fixed/app/routers/admin.py	2026-09-26 07:01:25.835856209 +0500
+@@ -1,4 +1,3 @@
+-import asyncio
+ from datetime import date
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends
+@@ -14,11 +13,9 @@
+ 
+ @router.get("/dashboard", response_model=DashboardOut)
+ async def dashboard(db: AsyncSession = Depends(get_db)):
+-    customers, orders, revenue = await asyncio.gather(
+-        count_customers(db),
+-        count_orders(db),
+-        total_revenue(db),
+-    )
++    customers = await count_customers(db)
++    orders = await count_orders(db)
++    revenue = await total_revenue(db)
+     return DashboardOut(customers=customers, orders=orders, revenue=revenue)
+ 
+ 
+diff -ru shopfront/app/routers/customers.py shopfront-fixed/app/routers/customers.py
+--- shopfront/app/routers/customers.py	2026-09-26 06:58:04.722982522 +0500
++++ shopfront-fixed/app/routers/customers.py	2026-09-26 07:01:25.834962104 +0500
+@@ -1,4 +1,4 @@
+-from fastapi import APIRouter, Depends
++from fastapi import APIRouter, Depends, HTTPException
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+@@ -14,6 +14,11 @@
+ async def signup(body: SignupIn, db: AsyncSession = Depends(get_db)):
+     customer = Customer(email=body.email.lower(), name=body.name.strip())
+     db.add(customer)
++    try:
++        await db.commit()
++    except IntegrityError:
++        await db.rollback()
++        raise HTTPException(status_code=409, detail="Email already registered")
+     return SignupOut(email=customer.email, name=customer.name)
+ 
+ 
+diff -ru shopfront/app/routers/orders.py shopfront-fixed/app/routers/orders.py
+--- shopfront/app/routers/orders.py	2026-09-26 06:58:12.666982994 +0500
++++ shopfront-fixed/app/routers/orders.py	2026-09-26 07:01:25.835911191 +0500
+@@ -1,5 +1,3 @@
+-import asyncio
+-
+ from fastapi import APIRouter, Depends
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+@@ -27,14 +25,15 @@
+ async def place_order(body: CheckoutIn, db: AsyncSession = Depends(get_db)):
+     await reserve_stock(db, body.items)
+     order = await create_order(db, body.customer_id, body.items, body.coupon_code)
+-    asyncio.create_task(record_audit(db, "order.placed", order.id))
++    await record_audit(db, "order.placed", order.id)
++    await db.commit()
+     return OrderCreated(id=order.id, status=order.status, total=order.total)
+ 
+ 
+ @router.get("/{order_id}", response_model=OrderDetail)
+ async def get_order(order_id: int, db: AsyncSession = Depends(get_db)):
+     order = await db.scalar(
+-        select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
++        select(Order).options(selectinload(Order.items), selectinload(Order.customer)).where(Order.id == order_id)
+     )
+     if order is None:
+         raise NotFoundError("Order not found")
+@@ -58,4 +57,5 @@
+ @router.post("/{order_id}/ship", response_model=ShipOut)
+ async def ship(order_id: int, body: ShipIn, db: AsyncSession = Depends(get_db)):
+     order = await ship_order(db, order_id, body.carrier)
++    await db.commit()
+     return ShipOut(id=order.id, status=order.status)
+diff -ru shopfront/app/routers/products.py shopfront-fixed/app/routers/products.py
+--- shopfront/app/routers/products.py	2026-09-26 06:58:07.386982680 +0500
++++ shopfront-fixed/app/routers/products.py	2026-09-26 07:01:25.835294158 +0500
+@@ -3,19 +3,24 @@
+ 
+ from app.db import get_db
+ from app.schemas import ProductOut, RestockIn, StockOut
+-from app.services.catalog import catalog
++from app.services.catalog import Catalog
+ from app.services.inventory import restock_product
+ 
+ router = APIRouter(prefix="/products", tags=["products"])
+ 
+ 
+ @router.get("/search", response_model=list[ProductOut])
+-async def search_products(q: str = Query(min_length=1), limit: int = Query(20, le=100)):
+-    products = await catalog.search(q, limit=limit)
++async def search_products(
++    q: str = Query(min_length=1),
++    limit: int = Query(20, le=100),
++    db: AsyncSession = Depends(get_db),
++):
++    products = await Catalog(db).search(q, limit=limit)
+     return [ProductOut.model_validate(p) for p in products]
+ 
+ 
+ @router.post("/{product_id}/restock", response_model=StockOut)
+ async def restock(product_id: int, body: RestockIn, db: AsyncSession = Depends(get_db)):
+     product = await restock_product(db, product_id, body.quantity)
++    await db.commit()
+     return StockOut(id=product.id, stock=product.stock)
+diff -ru shopfront/app/services/catalog.py shopfront-fixed/app/services/catalog.py
+--- shopfront/app/services/catalog.py	2026-09-26 06:58:20.222983443 +0500
++++ shopfront-fixed/app/services/catalog.py	2026-09-26 07:01:25.835418659 +0500
+@@ -1,7 +1,6 @@
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.db import SessionLocal
+ from app.models import Product
+ 
+ 
+@@ -19,5 +18,3 @@
+         result = await self.session.scalars(stmt)
+         return list(result)
+ 
+-
+-catalog = Catalog(SessionLocal())
+diff -ru shopfront/app/services/checkout.py shopfront-fixed/app/services/checkout.py
+--- shopfront/app/services/checkout.py	2026-09-26 06:58:26.974983845 +0500
++++ shopfront-fixed/app/services/checkout.py	2026-09-26 07:01:25.835476018 +0500
+@@ -18,7 +18,7 @@
+             raise CheckoutError(f"Not enough stock for {product.sku}")
+         product.stock -= item.quantity
+ 
+-    await db.commit()
++    await db.flush()
+ 
+ 
+ async def create_order(
+diff -ru shopfront/app/services/inventory.py shopfront-fixed/app/services/inventory.py
+--- shopfront/app/services/inventory.py	2026-09-26 06:58:21.626983527 +0500
++++ shopfront-fixed/app/services/inventory.py	2026-09-26 07:01:25.835035883 +0500
+@@ -10,5 +10,5 @@
+         raise NotFoundError("Product not found")
+ 
+     product.stock += quantity
+-    await db.commit()
++    await db.flush()
+     return product
+diff -ru shopfront/app/services/shipping.py shopfront-fixed/app/services/shipping.py
+--- shopfront/app/services/shipping.py	2026-09-26 06:58:29.122983972 +0500
++++ shopfront-fixed/app/services/shipping.py	2026-09-26 07:01:25.835686813 +0500
+@@ -13,9 +13,9 @@
+     if order.status != "placed":
+         raise InvalidStateError(f"Order {order_id} is {order.status}")
+ 
+-    async with db.begin():
+-        order.status = "shipped"
+-        order.shipped_at = datetime.now(timezone.utc)
+-        db.add(Shipment(order_id=order.id, carrier=carrier))
++    order.status = "shipped"
++    order.shipped_at = datetime.now(timezone.utc)
++    db.add(Shipment(order_id=order.id, carrier=carrier))
++    await db.flush()
+ 
+     return order

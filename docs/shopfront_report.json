@@ -1,0 +1,125 @@
+{
+  "tool": "session_doctor",
+  "version": "0.1.0",
+  "scanned_root": "shopfront",
+  "files_scanned": 22,
+  "fastapi_version": "0.118",
+  "fastapi_version_assumed": false,
+  "summary": {
+    "high": 8,
+    "medium": 2,
+    "needs_review": 1
+  },
+  "findings": [
+    {
+      "rule": "SD001",
+      "name": "commit-after-yield",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/db.py",
+      "line": 23,
+      "function": "app.db.get_db",
+      "message": "Session 'db' is committed after yield in dependency 'app.db.get_db'. On FastAPI >= 0.118 this runs after the response is sent.",
+      "fix_hint": "Commit explicitly in the route before returning, or use Depends(dep, scope='function')."
+    },
+    {
+      "rule": "SD006",
+      "name": "shared-session-concurrency",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/routers/admin.py",
+      "line": 17,
+      "function": "app.routers.admin.dashboard",
+      "message": "Session 'db' passed to 3 coroutines in asyncio.gather().",
+      "fix_hint": "Give each concurrent task its own session."
+    },
+    {
+      "rule": "SD007",
+      "name": "unsafe-background-work",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/routers/orders.py",
+      "line": 30,
+      "function": "app.routers.orders.place_order",
+      "message": "Request session 'db' passed to background task 'asyncio.create_task'. The session will be closed when the request ends.",
+      "fix_hint": "Open a new session inside the background task."
+    },
+    {
+      "rule": "SD007",
+      "name": "unsafe-background-work",
+      "severity": "medium",
+      "confidence": "high",
+      "file": "app/routers/orders.py",
+      "line": 30,
+      "function": "app.routers.orders.place_order",
+      "message": "Result of 'asyncio.create_task' (create_task/ensure_future) is not stored. The task may be garbage-collected before completing.",
+      "fix_hint": "Store the task: `task = asyncio.create_task(...)`"
+    },
+    {
+      "rule": "SD004",
+      "name": "lazy-relationship",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/routers/orders.py",
+      "line": 46,
+      "function": "app.routers.orders.get_order",
+      "message": "Async session loads 'order' (model app.models.Order) and reads relationship 'customer' without eager-load option. lazy=None.",
+      "fix_hint": "Add .options(selectinload(Model.rel)) to the query."
+    },
+    {
+      "rule": "SD008",
+      "name": "session-outlives-request",
+      "severity": "medium",
+      "confidence": "needs_review",
+      "file": "app/services/catalog.py",
+      "line": 10,
+      "function": "app.services.catalog.Catalog.__init__",
+      "message": "Session 'session' stored on instance as 'self.session'. If this object is created at module level or cached, the session outlives any single request.",
+      "fix_hint": "Do not store sessions on instance attributes."
+    },
+    {
+      "rule": "SD008",
+      "name": "session-outlives-request",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/services/catalog.py",
+      "line": 23,
+      "function": "app.services.catalog.<module>",
+      "message": "Session factory 'Catalog' called at module level ('catalog'). Module-level sessions outlive requests.",
+      "fix_hint": "Move session creation into a per-request dependency or route."
+    },
+    {
+      "rule": "SD002",
+      "name": "helper-commits",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/services/checkout.py",
+      "line": 21,
+      "function": "app.services.checkout.reserve_stock",
+      "message": "Helper 'app.services.checkout.reserve_stock' calls commit() on session 'db' which it received as a parameter.",
+      "fix_hint": "Use flush() in the helper; commit once in the owner."
+    },
+    {
+      "rule": "SD002",
+      "name": "helper-commits",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/services/inventory.py",
+      "line": 13,
+      "function": "app.services.inventory.restock_product",
+      "message": "Helper 'app.services.inventory.restock_product' calls commit() on session 'db' which it received as a parameter.",
+      "fix_hint": "Use flush() in the helper; commit once in the owner."
+    },
+    {
+      "rule": "SD005",
+      "name": "begin-after-autobegin",
+      "severity": "high",
+      "confidence": "high",
+      "file": "app/services/shipping.py",
+      "line": 16,
+      "function": "app.services.shipping.ship_order",
+      "message": "session.begin() called on 'db' which already has prior operations. SQLAlchemy autobegin is already active.",
+      "fix_hint": "Remove the explicit begin() - autobegin handles transaction start. Use begin_nested() for savepoints."
+    }
+  ]
+}

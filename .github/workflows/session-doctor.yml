@@ -1,0 +1,43 @@
+name: session-doctor
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  self-test:
+    name: Scanner unit tests + fixture check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Rule unit tests
+        run: python -m pytest -q session_doctor/tests
+      - name: Scanner must flag the buggy fixture (8 high findings)
+        run: |
+          set +e
+          python -m session_doctor scan shopfront --format json --out report.json --fail-on high
+          code=$?
+          set -e
+          test "$code" = "1"
+          python -c "import json,sys; h=json.load(open('report.json'))['summary']['high']; print('high findings:', h); sys.exit(0 if h==8 else 1)"
+      - name: Scanner must pass the reference fix (0 high findings)
+        run: |
+          cp -r shopfront /tmp/fixed
+          (cd /tmp/fixed && patch -p1 < "$GITHUB_WORKSPACE/eval/reference_fix.diff")
+          python -m session_doctor scan /tmp/fixed --fail-on high
+
+  gate:
+    name: Session gate (blocks PRs with high-confidence session bugs)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan app
+        run: python -m session_doctor scan shopfront --fail-on high

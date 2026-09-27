@@ -1,0 +1,58 @@
+======================================================================
+  session_doctor v0.1.0  --  shopfront
+======================================================================
+  Files scanned : 22
+  FastAPI       : 0.118
+  Findings      : 8 high  |  2 medium  |  1 needs-review
+
+  SD001 [HIGH  ]  app/db.py:23
+    commit-after-yield  in  app.db.get_db
+    Session 'db' is committed after yield in dependency 'app.db.get_db'. On FastAPI >= 0.118 this runs after the response is sent.
+    Fix: Commit explicitly in the route before returning, or use Depends(dep, scope='function').
+
+  SD006 [HIGH  ]  app/routers/admin.py:17
+    shared-session-concurrency  in  app.routers.admin.dashboard
+    Session 'db' passed to 3 coroutines in asyncio.gather().
+    Fix: Give each concurrent task its own session.
+
+  SD007 [HIGH  ]  app/routers/orders.py:30
+    unsafe-background-work  in  app.routers.orders.place_order
+    Request session 'db' passed to background task 'asyncio.create_task'. The session will be closed when the request ends.
+    Fix: Open a new session inside the background task.
+
+  SD007 [MEDIUM]  app/routers/orders.py:30
+    unsafe-background-work  in  app.routers.orders.place_order
+    Result of 'asyncio.create_task' (create_task/ensure_future) is not stored. The task may be garbage-collected before completing.
+    Fix: Store the task: `task = asyncio.create_task(...)`
+
+  SD004 [HIGH  ]  app/routers/orders.py:46
+    lazy-relationship  in  app.routers.orders.get_order
+    Async session loads 'order' (model app.models.Order) and reads relationship 'customer' without eager-load option. lazy=None.
+    Fix: Add .options(selectinload(Model.rel)) to the query.
+
+  SD008 [MEDIUM]  app/services/catalog.py:10 (needs_review)
+    session-outlives-request  in  app.services.catalog.Catalog.__init__
+    Session 'session' stored on instance as 'self.session'. If this object is created at module level or cached, the session outlives any single request.
+    Fix: Do not store sessions on instance attributes.
+
+  SD008 [HIGH  ]  app/services/catalog.py:23
+    session-outlives-request  in  app.services.catalog.<module>
+    Session factory 'Catalog' called at module level ('catalog'). Module-level sessions outlive requests.
+    Fix: Move session creation into a per-request dependency or route.
+
+  SD002 [HIGH  ]  app/services/checkout.py:21
+    helper-commits  in  app.services.checkout.reserve_stock
+    Helper 'app.services.checkout.reserve_stock' calls commit() on session 'db' which it received as a parameter.
+    Fix: Use flush() in the helper; commit once in the owner.
+
+  SD002 [HIGH  ]  app/services/inventory.py:13
+    helper-commits  in  app.services.inventory.restock_product
+    Helper 'app.services.inventory.restock_product' calls commit() on session 'db' which it received as a parameter.
+    Fix: Use flush() in the helper; commit once in the owner.
+
+  SD005 [HIGH  ]  app/services/shipping.py:16
+    begin-after-autobegin  in  app.services.shipping.ship_order
+    session.begin() called on 'db' which already has prior operations. SQLAlchemy autobegin is already active.
+    Fix: Remove the explicit begin() - autobegin handles transaction start. Use begin_nested() for savepoints.
+
+======================================================================

@@ -89,3 +89,5 @@ id_dsa
 # ============================================
 # DO NOT REMOVE ABOVE PATTERNS
 # ============================================
+# Session Doctor: keep the answer key and hidden tests out of Bob's context during fix runs
+eval/
