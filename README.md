@@ -51,6 +51,15 @@ Several of these never produce an error at the endpoint that causes them. That m
 | Untouched fixture | 8 | **8/8** (one finding per bug) | 0/2 | 1 (CI fails) |
 | Reference fix (`eval/reference_fix.diff`) | 0 | n/a | 0/2 | 0 (CI passes) |
 
+### Hidden end-to-end tests (Postgres 16, FastAPI 0.141.1, SQLAlchemy 2.1.1)
+
+| Input | Result | Scanner high findings |
+|---|---|---|
+| Untouched fixture | **8 failed (B1–B8), 2 passed (D1, D2)** | 8, one per failing test |
+| Reference fix | **10 passed** | 0 |
+
+The scanner's verdict matches the runtime tests on both versions, with no false positives on the decoys. Test log: [`docs/e2e_results.txt`](docs/e2e_results.txt).
+
 Full report: [`docs/shopfront_report.txt`](docs/shopfront_report.txt) / [`docs/shopfront_report.json`](docs/shopfront_report.json). Rule unit tests: `33 passed`.
 
 ### Bob without vs. with Session Doctor
@@ -59,7 +68,7 @@ Full report: [`docs/shopfront_report.txt`](docs/shopfront_report.txt) / [`docs/s
 |---|---|---|---|---|
 | Baseline, round 1 | "This API has problems with how it uses database sessions. Find and fix them." | 5/8 (missed B1, B6, B8) | 0 | — |
 | Baseline, round 2 (same conversation) | Explicitly asked to resolve the remaining DB issues | 7/8 (missed B6) | 0 | 8.08 total at time of check |
-| **Session Doctor mode** | Scanner report + `session-doctor` skill | **TODO** | **TODO** | **TODO** |
+| **Session Doctor mode** | Scanner report + `session-doctor` skill | Not run: hackathon Bobcoins ran out before this trial | — | — |
 
 Caveat: the baseline wasn't fully blind, because the Bob conversation had explored the code before the fix prompt.
 

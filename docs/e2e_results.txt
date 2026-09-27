@@ -1,0 +1,19 @@
+Hidden e2e tests (eval/tests_hidden), run 2026-09-27
+Postgres 16, Python 3.11, FastAPI 0.141.1, SQLAlchemy 2.1.1
+
+== Untouched fixture (shopfront/)
+PASSED test_d1_daily_report_background_job
+PASSED test_d2_newsletter_subscribe_is_idempotent
+FAILED test_b1_duplicate_signup_is_not_reported_as_success
+FAILED test_b2_restock_returns_new_stock
+FAILED test_b3_order_detail_includes_customer_email
+FAILED test_b4_ship_placed_order
+FAILED test_b5_failed_checkout_does_not_consume_stock
+FAILED test_b6_dashboard_totals
+FAILED test_b7_every_placed_order_is_audited
+FAILED test_b8_search_does_not_hold_a_transaction_open
+8 failed, 2 passed in 19.91s
+
+== Reference fix (shopfront/ + eval/reference_fix.diff)
+PASSED test_b1 .. test_b8, test_d1, test_d2
+10 passed in 19.59s
